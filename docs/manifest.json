@@ -2,7 +2,7 @@
   "name": "Daily News Briefing",
   "short_name": "Briefing",
   "description": "Your personalized daily news briefing",
-  "start_url": "/daily-briefing/",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#0F172A",
   "theme_color": "#0F172A",
