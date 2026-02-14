@@ -1,158 +1,175 @@
 import os
 import json
 import re
+import time
 import datetime
 import anthropic
 
 
-def generate_briefing():
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+# Define the sections and their search queries
+SECTIONS = [
+    {
+        "section": "Wars & Conflicts",
+        "count": 4,
+        "query": "Search for the latest news today about active wars and armed conflicts worldwide including Ukraine-Russia, Israel-Gaza, Sudan, Myanmar, and any other ongoing conflicts. Return the top 4 most important stories."
+    },
+    {
+        "section": "India AI Mission",
+        "count": 3,
+        "query": "Search for the latest news about India AI Mission, IndiaAI, India artificial intelligence policy, government AI initiatives in India. Return the top 3 most important stories."
+    },
+    {
+        "section": "India Semiconductor Mission",
+        "count": 3,
+        "query": "Search for the latest news about India Semiconductor Mission, chip manufacturing in India, semiconductor fabs India, Tata Electronics, Micron India. Return the top 3 most important stories."
+    },
+    {
+        "section": "AI — Big Tech",
+        "count": 5,
+        "query": "Search for the latest news from OpenAI, Google AI Gemini, Microsoft AI Copilot, xAI Grok, Cursor AI editor. What are the biggest AI announcements and product launches? Return the top 5 stories."
+    },
+    {
+        "section": "AI Business News",
+        "count": 4,
+        "query": "Search for the latest global business news about artificial intelligence — AI investments, AI company funding, AI partnerships, enterprise AI adoption. Return the top 4 stories."
+    },
+    {
+        "section": "US Politics & Economy",
+        "count": 4,
+        "query": "Search for the latest US politics news, US economy updates, Federal Reserve, trade policy, Congress legislation. Return the top 4 stories."
+    },
+    {
+        "section": "India Politics & Economy",
+        "count": 4,
+        "query": "Search for the latest India politics news, India economy updates, RBI policy, India trade, India GDP. Return the top 4 stories."
+    },
+    {
+        "section": "India Government Policies",
+        "count": 3,
+        "query": "Search for the latest Indian government policy announcements, new schemes, regulatory changes, budget announcements. Return the top 3 stories."
+    },
+    {
+        "section": "Fortune 500",
+        "count": 4,
+        "query": "Search for the latest news from Fortune 500 companies — earnings, layoffs, acquisitions, leadership changes, major announcements from Apple, Amazon, Google, Tesla, etc. Return the top 4 stories."
+    },
+    {
+        "section": "India Corporate",
+        "count": 5,
+        "query": "Search for the latest India corporate news across BFSI banking, pharma, manufacturing, mining, hospitality, IT services — companies like TCS, Infosys, Reliance, HDFC, Tata, Adani. Return the top 5 stories."
+    },
+    {
+        "section": "India Startups",
+        "count": 5,
+        "query": "Search for the latest Indian startup news — funding rounds, IPOs, unicorns, startup acquisitions, new launches from India startups. Return the top 5 stories."
+    },
+    {
+        "section": "AI Startups",
+        "count": 3,
+        "query": "Search for the latest AI startup news worldwide — funding rounds, new AI companies, AI startup launches, AI unicorns. Return the top 3 stories."
+    },
+    {
+        "section": "India Economy & Rare Earth",
+        "count": 3,
+        "query": "Search for latest news about India budget, GDP growth, rare earth minerals India, India mining policy, critical minerals India. Return the top 3 stories."
+    },
+]
 
-    today = datetime.date.today().strftime("%A, %B %d, %Y")
 
-    system_prompt = """You are a professional news curator. You MUST respond with ONLY a valid JSON array.
-No markdown, no code fences, no explanation — ONLY the raw JSON array.
+def fetch_section(client, section_info, today):
+    """Fetch stories for one section."""
+    section = section_info["section"]
+    count = section_info["count"]
+    query = section_info["query"]
 
-The JSON array must contain objects with these exact keys:
-"section", "headline", "source", "date", "summary", "url"
+    system = f"""You are a news curator. Return ONLY a valid JSON array with no other text.
+Each object must have exactly these keys: "headline", "source", "date", "summary", "url"
+Return exactly {count} news stories. No markdown, no code fences, no explanation.
+Just the raw JSON array starting with [ and ending with ]"""
 
-Valid section values are:
-"Wars & Conflicts", "India AI Mission", "India Semiconductor Mission",
-"AI — Big Tech", "AI Business News", "US Politics & Economy",
-"India Politics & Economy", "India Government Policies", "Fortune 500",
-"India Corporate", "India Startups", "AI Startups", "India Economy & Rare Earth"
-"""
+    user_msg = f"""Today is {today}. {query}
 
-    user_prompt = f"""Today is {today}.
+Remember: respond with ONLY a JSON array. Example:
+[{{"headline": "Example Headline", "source": "Reuters", "date": "Feb 15, 2026", "summary": "Two sentence summary here.", "url": "https://example.com/article"}}]"""
 
-Search the web thoroughly and create a daily briefing with 50 top stories across these areas:
+    for attempt in range(3):
+        try:
+            response = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=4000,
+                system=system,
+                tools=[{
+                    "type": "web_search_20250305",
+                    "name": "web_search"
+                }],
+                messages=[{"role": "user", "content": user_msg}]
+            )
 
-1. Active wars/conflicts worldwide (4 stories)
-2. India AI Mission updates (3 stories)
-3. India Semiconductor Mission updates (3 stories)
-4. Latest from OpenAI, Google AI, Microsoft AI, Grok/xAI, Cursor (5 stories)
-5. Global AI business news (4 stories)
-6. US Politics & Economy (4 stories)
-7. India Politics & Economy (4 stories)
-8. India Government policies (3 stories)
-9. Fortune 500 company news (4 stories)
-10. India corporate news — BFSI, Pharma, Manufacturing, Mining, Hospitality, Services (5 stories)
-11. India startup ecosystem (5 stories)
-12. AI startup ecosystem (3 stories)
-13. India Budget, Economics, GDP, Rare Earth & Mining (3 stories)
-
-Search sources including: Guardian, Bloomberg, The Economist, Times of India,
-Wall Street Journal, Mint, Hindustan Times, Business Insider, Analytics India Magazine,
-TechCrunch, Reuters, CNBC, Economic Times, and any other credible sources.
-
-For each story provide: headline, source name, date, a 2-3 sentence summary, and the source URL.
-
-IMPORTANT: Your ENTIRE response must be a valid JSON array. No other text before or after.
-Example format:
-[
-  {{"section": "Wars & Conflicts", "headline": "...", "source": "Reuters", "date": "Feb 15, 2026", "summary": "...", "url": "https://..."}},
-  ...
-]"""
-
-    # Use a loop to handle multi-turn tool use (web search requires this)
-    messages = [{"role": "user", "content": user_prompt}]
-
-    all_text = ""
-    max_iterations = 20  # Safety limit
-
-    for i in range(max_iterations):
-        print(f"  API call {i + 1}...")
-
-        # Retry up to 3 times on server errors
-        response = None
-        for attempt in range(3):
-            try:
-                response = client.messages.create(
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=16000,
-                    system=system_prompt,
-                    tools=[{
-                        "type": "web_search_20250305",
-                        "name": "web_search"
-                    }],
-                    messages=messages
-                )
-                break  # Success, exit retry loop
-            except Exception as e:
-                print(f"  Attempt {attempt + 1} failed: {e}")
-                if attempt < 2:
-                    import time
-                    wait_time = 10 * (attempt + 1)  # 10s, 20s
-                    print(f"  Retrying in {wait_time} seconds...")
-                    time.sleep(wait_time)
-                else:
-                    raise  # Give up after 3 attempts
-
-        if response is None:
-            raise Exception("Failed to get API response after 3 attempts")
-
-        # Collect all text blocks from this response
-        for block in response.content:
-            if hasattr(block, "text") and block.text:
-                all_text += block.text
-
-        print(f"  Stop reason: {response.stop_reason}")
-
-        # If the model is done, break
-        if response.stop_reason == "end_turn":
-            break
-
-        # If the model wants to use a tool (web search), we need to send the
-        # response back and let it continue
-        if response.stop_reason == "tool_use":
-            # Add assistant's response to messages
-            messages.append({"role": "assistant", "content": response.content})
-
-            # Collect all tool_use blocks and create results
-            tool_results = []
+            # Collect text from response
+            all_text = ""
             for block in response.content:
-                if block.type == "tool_use":
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": "Search completed. Continue generating the briefing."
-                    })
+                if hasattr(block, "text") and block.text:
+                    all_text += block.text
 
-            if tool_results:
-                messages.append({"role": "user", "content": tool_results})
-        else:
-            # Any other stop reason, we're done
-            break
+            # If we got no text but stop reason is end_turn, the model
+            # may have done web search but not produced final text.
+            # In that case, make a follow-up call without web search.
+            if not all_text.strip() or "[" not in all_text:
+                # Try a second call asking it to format what it found
+                follow_up = client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=4000,
+                    system=system,
+                    messages=[
+                        {"role": "user", "content": user_msg},
+                        {"role": "assistant", "content": "Based on my search, here are the stories:\n["},
+                    ]
+                )
+                all_text = "["
+                for block in follow_up.content:
+                    if hasattr(block, "text") and block.text:
+                        all_text += block.text
 
-    print(f"  Total text collected: {len(all_text)} characters")
+            stories = extract_json_array(all_text)
 
-    # Parse JSON from collected text
-    stories = extract_json_array(all_text)
-    return stories, today
+            # Add section to each story
+            for s in stories:
+                s["section"] = section
+
+            if stories:
+                return stories
+
+            print(f"    No stories parsed, attempt {attempt + 1}")
+
+        except Exception as e:
+            print(f"    Error on attempt {attempt + 1}: {e}")
+            if attempt < 2:
+                time.sleep(10 * (attempt + 1))
+
+    return []
 
 
 def extract_json_array(text):
-    """Robustly extract a JSON array from text that may contain other content."""
+    """Robustly extract a JSON array from text."""
+    if not text:
+        return []
 
-    # First, try to find a JSON array directly
-    # Remove markdown code fences if present
+    # Remove code fences
     cleaned = re.sub(r'```json\s*', '', text)
     cleaned = re.sub(r'```\s*', '', cleaned)
     cleaned = cleaned.strip()
 
-    # Try parsing the whole cleaned text
+    # Try direct parse
     try:
         result = json.loads(cleaned)
         if isinstance(result, list):
-            print(f"  Parsed {len(result)} stories (direct parse)")
             return result
     except json.JSONDecodeError:
         pass
 
-    # Try to find array boundaries
+    # Find array boundaries with bracket matching
     start = cleaned.find("[")
     if start >= 0:
-        # Find the matching closing bracket
         depth = 0
         for i in range(start, len(cleaned)):
             if cleaned[i] == "[":
@@ -163,13 +180,22 @@ def extract_json_array(text):
                     try:
                         result = json.loads(cleaned[start:i + 1])
                         if isinstance(result, list):
-                            print(f"  Parsed {len(result)} stories (bracket match)")
                             return result
                     except json.JSONDecodeError:
-                        pass
+                        # Try fixing common issues
+                        fragment = cleaned[start:i + 1]
+                        # Fix trailing commas
+                        fragment = re.sub(r',\s*]', ']', fragment)
+                        fragment = re.sub(r',\s*}', '}', fragment)
+                        try:
+                            result = json.loads(fragment)
+                            if isinstance(result, list):
+                                return result
+                        except json.JSONDecodeError:
+                            pass
                     break
 
-    # Last resort: try to find individual JSON objects and collect them
+    # Last resort: find individual objects
     objects = []
     for match in re.finditer(r'\{[^{}]*"headline"[^{}]*\}', cleaned):
         try:
@@ -178,19 +204,12 @@ def extract_json_array(text):
         except json.JSONDecodeError:
             pass
 
-    if objects:
-        print(f"  Parsed {len(objects)} stories (individual objects)")
-        return objects
-
-    print("  WARNING: Could not parse any stories from response")
-    print(f"  Response preview: {text[:500]}...")
-    return []
+    return objects
 
 
 def build_html(stories, date_str):
     """Build the PWA-ready HTML briefing page."""
 
-    # Section colors
     section_colors = {
         "Wars & Conflicts": "#DC2626",
         "India AI Mission": "#F59E0B",
@@ -213,36 +232,31 @@ def build_html(stories, date_str):
                 return color
         return "#64748B"
 
-    # Group stories by section
-    sections = {}
+    # Group by section preserving order
+    from collections import OrderedDict
+    sections = OrderedDict()
     for story in stories:
         sec = story.get("section", "Other")
         if sec not in sections:
             sections[sec] = []
         sections[sec].append(story)
 
-    # Build cards HTML
     cards_html = ""
     story_count = 0
 
     for section, items in sections.items():
         color = get_color(section)
-        cards_html += f'<div class="section-header" style="color:{color}">{section}</div>\n'
+        cards_html += f'<div class="section-header" style="color:{color}">{esc(section)}</div>\n'
         for item in items:
             story_count += 1
-            headline = item.get("headline", "No headline")
-            source = item.get("source", "Unknown")
-            date = item.get("date", "")
-            summary = item.get("summary", "")
+            headline = esc(item.get("headline", "No headline"))
+            source = esc(item.get("source", "Unknown"))
+            date = esc(item.get("date", ""))
+            summary = esc(item.get("summary", ""))
             url = item.get("url", "#")
 
-            # Escape HTML entities
-            headline = headline.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            summary = summary.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            source = source.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
             cards_html += f"""<div class="card" style="border-left-color:{color}">
-  <span class="section-tag" style="background:{color}30;color:{color}">{section}</span>
+  <span class="section-tag" style="background:{color}30;color:{color}">{esc(section)}</span>
   <div class="headline"><a href="{url}" target="_blank" rel="noopener">{headline}</a></div>
   <div class="meta">{source} &middot; {date}</div>
   <div class="summary">{summary}</div>
@@ -315,7 +329,7 @@ body {{ font-family:'Inter',sans-serif; background:#0F172A; color:#E2E8F0;
     else:
         html += """<div class="empty-state">
   <h2>No stories today</h2>
-  <p>The briefing generation may have encountered an issue. Check the GitHub Actions log for details.</p>
+  <p>The briefing generation encountered an issue. Check the GitHub Actions log.</p>
 </div>
 """
 
@@ -331,7 +345,6 @@ window.addEventListener('scroll', function() {{
   var pct = (h.scrollTop / (h.scrollHeight - h.clientHeight)) * 100;
   document.getElementById('progressFill').style.width = Math.min(pct, 100) + '%';
 }});
-
 if ('serviceWorker' in navigator) {{
   navigator.serviceWorker.register('sw.js').catch(function() {{}});
 }}
@@ -340,6 +353,13 @@ if ('serviceWorker' in navigator) {{
 </html>"""
 
     return html
+
+
+def esc(text):
+    """Escape HTML entities."""
+    if not text:
+        return ""
+    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def build_manifest():
@@ -374,31 +394,41 @@ if __name__ == "__main__":
     print("DAILY NEWS BRIEFING GENERATOR")
     print("=" * 50)
 
-    print("\n1. Generating today's briefing...")
-    stories, date_str = generate_briefing()
-    print(f"\n2. Got {len(stories)} stories")
+    today = datetime.date.today().strftime("%A, %B %d, %Y")
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
-    if stories:
-        print(f"   Sections found: {set(s.get('section', 'Other') for s in stories)}")
+    all_stories = []
 
-    print("\n3. Building HTML...")
-    html = build_html(stories, date_str)
+    for i, section_info in enumerate(SECTIONS):
+        section = section_info["section"]
+        print(f"\n[{i+1}/{len(SECTIONS)}] Fetching: {section}...")
 
-    print("\n4. Writing files...")
+        stories = fetch_section(client, section_info, today)
+        print(f"  Got {len(stories)} stories")
+        all_stories.extend(stories)
+
+        # Small delay between sections to avoid rate limits
+        if i < len(SECTIONS) - 1:
+            time.sleep(2)
+
+    print(f"\n{'=' * 50}")
+    print(f"Total stories collected: {len(all_stories)}")
+    print(f"{'=' * 50}")
+
+    print("\nBuilding HTML...")
+    html = build_html(all_stories, today)
+
+    print("Writing files...")
     os.makedirs("docs", exist_ok=True)
 
     with open("docs/index.html", "w", encoding="utf-8") as f:
         f.write(html)
-    print(f"   docs/index.html ({len(html)} bytes)")
+    print(f"  docs/index.html ({len(html):,} bytes)")
 
     with open("docs/manifest.json", "w") as f:
         f.write(build_manifest())
-    print("   docs/manifest.json")
 
     with open("docs/sw.js", "w") as f:
         f.write(build_service_worker())
-    print("   docs/sw.js")
 
-    print(f"\n{'=' * 50}")
-    print(f"DONE — {len(stories)} stories generated for {date_str}")
-    print(f"{'=' * 50}")
+    print(f"\nDONE — {len(all_stories)} stories for {today}")
