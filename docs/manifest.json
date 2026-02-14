@@ -1,0 +1,21 @@
+{
+  "name": "Daily News Briefing",
+  "short_name": "Briefing",
+  "description": "Your personalized daily news briefing",
+  "start_url": "/daily-briefing/",
+  "display": "standalone",
+  "background_color": "#0F172A",
+  "theme_color": "#0F172A",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
