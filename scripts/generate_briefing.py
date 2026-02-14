@@ -63,16 +63,33 @@ Example format:
     for i in range(max_iterations):
         print(f"  API call {i + 1}...")
 
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=16000,
-            system=system_prompt,
-            tools=[{
-                "type": "web_search_20250305",
-                "name": "web_search"
-            }],
-            messages=messages
-        )
+        # Retry up to 3 times on server errors
+        response = None
+        for attempt in range(3):
+            try:
+                response = client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=16000,
+                    system=system_prompt,
+                    tools=[{
+                        "type": "web_search_20250305",
+                        "name": "web_search"
+                    }],
+                    messages=messages
+                )
+                break  # Success, exit retry loop
+            except Exception as e:
+                print(f"  Attempt {attempt + 1} failed: {e}")
+                if attempt < 2:
+                    import time
+                    wait_time = 10 * (attempt + 1)  # 10s, 20s
+                    print(f"  Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    raise  # Give up after 3 attempts
+
+        if response is None:
+            raise Exception("Failed to get API response after 3 attempts")
 
         # Collect all text blocks from this response
         for block in response.content:
