@@ -1,0 +1,40 @@
+name: Daily News Briefing
+
+on:
+  schedule:
+    # Runs at 5:30 AM IST (00:00 UTC) every day
+    # Change this cron to your preferred time
+    # Format: minute hour * * * (UTC time)
+    - cron: '0 0 * * *'
+
+  # Allows you to manually trigger from GitHub
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install anthropic
+
+      - name: Generate briefing
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python scripts/generate_briefing.py
+
+      - name: Commit and push
+        run: |
+          git config user.name "News Bot"
+          git config user.email "bot@briefing.local"
+          git add docs/
+          git commit -m "📰 Daily briefing for $(date +'%Y-%m-%d')" || echo "No changes"
+          git push
